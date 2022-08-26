@@ -41,17 +41,17 @@ for i in range(1,23):  # full chromosome range = [1,23]
 
     json_file = sys_params['DATA_WRITE_FOLDER']+'/all/raw_data/json_files/chr' + str(i) + "_cds_data.json"
     with open(json_file, "r") as f:
-        dataset = json.load(f)
+        chromosome_dataset = json.load(f)
 
-    all_genes_in_chrm = list(map(lambda x: dataset['main'][x]['gene_id'].strip('"'),
-                             list(range(0, len(dataset['main'])))))
+    all_genes_in_chrm = list(map(lambda x: chromosome_dataset['main'][x]['gene_id'].strip('"'),
+                             list(range(0, len(chromosome_dataset['main'])))))
 
     # Do not consider the chromosomes that Wilfried wants ignored
     if len(set(all_genes_in_chrm).intersection(set(genes_ignore))) != 0:
         print('Skipping gene:', set(all_genes_in_chrm).intersection(set(genes_ignore)))
         continue
 
-    NO_OF_GENES = len(dataset['main'])
+    NO_OF_GENES = len(chromosome_dataset['main'])
     print('Processing Chromosome {}:'.format(i))
 
     if DATASET_TYPE == 'boundaryCertainPoint_orNot_2classification':
@@ -71,5 +71,5 @@ for i in range(1,23):  # full chromosome range = [1,23]
     obj = GenerateDataset(DATASET_TYPE, EXON_BOUNDARY, MAX_LENGTH, NO_OFFSETS_PER_EXON, OFFSET_RANGE,
                  SEQ_TYPE, NO_OF_GENES, WRITE_DATA_TO_FILE, WRITE_TO_FILE_PATH, DATA_LOG,
                  SANITY_CHECK, META_DATA)
-    obj.manipulate(dataset, 'chrm{}'.format(i))
+    obj.manipulate(chromosome_dataset, 'chrm{}'.format(i))
     encode_seq(WRITE_TO_FILE_PATH)
