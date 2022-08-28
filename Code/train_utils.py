@@ -6,17 +6,6 @@ from torch.utils.data import Dataset, DataLoader
 from collections import Counter
 from sklearn.model_selection import StratifiedShuffleSplit
 
-class BaseModel(nn.Module):
-    """
-    Base class for all models
-    """
-    def __str__(self):
-        """
-        Model prints with number of trainable parameters
-        """
-        model_parameters = filter(lambda p: p.requires_grad, self.parameters())
-        params = sum([np.prod(p.size()) for p in model_parameters])
-        return super().__str__() + '\nTrainable parameters: {}'.format(params)
 
 class SequenceDataset(Dataset):
 
@@ -40,11 +29,11 @@ def string_metadata(config):
     :return: str
             name of the folder which will be stored in '/saved_models/' for this experiment
     '''
-    s = config['EXP_NAME'] + '_' + config['VALIDATION']['type'] + '_' + config['MODEL_NAME'] + '['
-    s += str(config['MODEL']['embedding_dim']) + ',' + str(config['MODEL']['hidden_dim']) + ',' + \
+    string = config['EXP_NAME'] + '_' + config['VALIDATION']['type'] + '_' + config['MODEL_NAME'] + '['
+    string += str(config['MODEL']['embedding_dim']) + ',' + str(config['MODEL']['hidden_dim']) + ',' + \
          str(config['MODEL']['hidden_layers']) + ',' + str(config['MODEL']['output_dim']) + ']'
-    s += '_BS' + str(config['DATA']['BATCH_SIZE']) + '_' + config['OPTIMIZER']['type']
-    return s
+    string += '_BS' + str(config['DATA']['BATCH_SIZE']) + '_' + config['OPTIMIZER']['type']
+    return string
 
 def create_train_val_split(split, n_samples):
     '''

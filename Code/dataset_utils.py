@@ -5,7 +5,7 @@ import json
 import itertools
 import tqdm
 from Bio.Seq import Seq
-from Bio.Alphabet import generic_dna
+#from Bio.Alphabet import generic_dna
 from heapq import merge
 import portion as P
 import random
@@ -94,7 +94,7 @@ def get_gene_seq(gene_sequence, strand):
     if (strand == '+'):
         return gene_sequence
     if (strand == '-'):
-        my_seq = Seq(gene_sequence, generic_dna)
+        my_seq = Seq(gene_sequence) #, generic_dna)
         my_seq.reverse_complement()
         return str(my_seq)
 

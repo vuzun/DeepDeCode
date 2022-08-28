@@ -18,32 +18,31 @@ def preprocess_chromosomeseq_file(chr_file="chr21.fa", base_write_path='', write
     :return: str
             String containing nucleotide sequence for chromosome
     '''
-    file_object = open(raw_data_path + chr_file, "r")
 
-    chrm_seq = file_object.read()
-    # print('Length of unprocessed chromosome: '+len(chrm))  # 47644190
+    with open(raw_data_path + chr_file, "r") as f:
+        chrm_seq = f.read()
+
 
     chrm_seq = chrm_seq.replace('\n', '')
     #Fasta file contains name of chromosome (eg. '>chr21') at the start: removing it
-    if (chrm_seq[5].isdigit()):
+    if (chrm_seq[5].isdigit()): # double-digit chromosome
         chrm_seq = chrm_seq[6:]
     else:
         chrm_seq = chrm_seq[5:]
-    # print('Length of pre-processed chromosome: ', len(chrm))  # 46709983  #write to file
 
-    #Append a blank at the beginning and end of string (since annotations are 1-indexed
-    chrm_seq = ' '+chrm_seq+' '   # len = 46709985
+    #Append a blank at the beginning and end of string (since annotations are 1-indexed)
+    chrm_seq = ' '+chrm_seq+' '
 
-    #print('Length of processed chromosome: ', len(chrm_seq))
     if write_to_file or not os.path.exists(base_write_path+chr_file.replace("fa", "txt")):
-        print('Writing chromosome seq to txt file..')
+        print('Writing chromosome seq to txt file...')
         text_file = open(base_write_path + chr_file.replace("fa", "txt"), "w")
         text_file.write(chrm_seq)
         text_file.close()
     return chrm_seq
 
 
-def create_chromosome_annotations(chrm='chr21', base_write_path='', write_to_file=False):
+def create_chromosome_annotations(chrm='chr21', base_write_path='', write_to_file=False,
+                                  ann_file = "gencode.v38.annotation.gtf"):
     '''
     Function to read annotation file for human genome sequence GRCh38 and get annotations for specified chromosome
     :param chrm: str
@@ -52,13 +51,16 @@ def create_chromosome_annotations(chrm='chr21', base_write_path='', write_to_fil
             base path for writing to file
     :param write_to_file: bool, optional
             Variable to control writing extracted information to file
+    :param ann_file: str
+            annotation file name
     :return: None
     '''
-    ann_file = "gencode.v34.annotation.gtf"
-    col_names = ['chr_name', 'source', 'type', 'start', 'end', '.', 'strand', ',', 'other']
+
     assert os.path.exists(raw_data_path + ann_file), "place genome annotation file in correct directory"
+
+    col_names = ['chr_name', 'source', 'type', 'start', 'end', '.', 'strand', ',', 'other']
     print('Reading Annotation File {}...'.format(ann_file))
-    ann = pd.read_csv(raw_data_path + ann_file, sep='\t', header=None)
+    ann = pd.read_csv(raw_data_path + ann_file, sep='\t', header=None, comment="#")
     print('Done.')
     ann.columns = col_names    # print(ann.shape)  # (2912496, 9)
 
@@ -66,8 +68,8 @@ def create_chromosome_annotations(chrm='chr21', base_write_path='', write_to_fil
     del chr_no['.']
     del chr_no[',']
 
-    l = list(map(lambda x: x.split(';'), chr_no['other']))
-    df_l = pd.DataFrame(l)
+    other_list = list(map(lambda x: x.split(';'), chr_no['other']))
+    df_l = pd.DataFrame(other_list)
     df_l[0] = list(map(lambda x: x[8:], df_l[0])) #remove 'gene_id '[0,8] part from gene_id field
     del chr_no['other']
 
@@ -94,8 +96,11 @@ if __name__ == "__main__":
         os.makedirs(base_write_ann_path)
 
     print('Pre-processing for Chromosome {}'.format(args.no))
+
     # read fasta file for chromosome, which generate the txt files --
     preprocess_chromosomeseq_file(chr_i+".fa", base_write_path=base_write_txt_path, write_to_file=True)
+
     # get annotations for particular chromosome --
     create_chromosome_annotations(chrm=chr_i, base_write_path=base_write_ann_path, write_to_file=True)
+
     print('Finished pre-processing Chromosome {}'.format(args.no))
