@@ -46,9 +46,6 @@ def extract_stats_from_scores_df(path_to_dfs, threshold=0.8):
     return stats_above_threshold, stats_under_threshold
 
 
-# %%
-
-
 
 if __name__=="__main__":
     

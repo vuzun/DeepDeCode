@@ -76,7 +76,7 @@ def create_train_val_split_mixed(split, y):
     if split == 0.0:
         return idx_full, None
 
-    np.random.seed(0)  # For reproducibility
+    np.random.seed(0)
     np.random.shuffle(idx_full)
 
     if isinstance(split, int):

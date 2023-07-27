@@ -1,9 +1,7 @@
-import tqdm
 import itertools
 import random
 import os
 import sys
-import shutil
 import numpy as np
 import pandas as pd
 import time
@@ -14,31 +12,38 @@ import argparse
 import time
 from concurrent.futures import ProcessPoolExecutor as Pool
 from multiprocessing import get_context
+import pickle
 
 from models import *
 from metrics import *
 from train_utils import *
-from train_attention import *
+from train import *
+
+from model_hyperparameters_for_search import *
 
 curr_dir_path = str(pathlib.Path().absolute())
 
-NO_MODELS = 4 #512
-FILE_NAME = 'boundary60_orNot_2classification.csv'
+NO_MODELS = 64 #32 #4 #512 #16
+FILE_NAME = 'hyperparameter_opt_LSTM_classification.csv'
 MULTIPROCESS = True
 TEST=False
 
-def helper_func(obj):
+# pickle dictionary for logging hyperparams
+HP_DICT_LIST_FILE="SimpleLSTM_hp_dict.pkl" 
+model_2_pkl_file_name = {
+    "AttLSTM": "AttLSTM_hp_dict.pkl",
+    "SimpleLSTM": "SimpleLSTM_hp_dict.pkl",
+    "CNN": "CNN_hp_dict.pkl"
+}
+
+def helper_func(func_args):
+    obj=func_args[0]
+    hyperparam_dict=func_args[1]
     obj.training_pipeline()
-    return obj.best_metrics
+    return obj.best_metrics, hyperparam_dict
 
 if __name__ == '__main__':
 
-    # >>
-    # pass config file / sys_params file +
-    # generalise model type and params (from config)
-    # name for save file
-    
-    
     parser = argparse.ArgumentParser(description='Testing different hyperparameters for a model')
     parser.add_argument('--config', type = str, help='config.json with model specifcations', required=True)
     parser.add_argument('--params_file', type = str, help='Parameters file with path locations (system_specific_params.yaml)', required=True)
@@ -52,6 +57,9 @@ if __name__ == '__main__':
     if args.output!=None:
         FILE_NAME=args.output
 
+    print(f"Config file: {args.config}, output .csv: {FILE_NAME}")
+    print(f"Starting at {str(datetime.datetime.now())}")
+
     # Get config file
     with open(args.config, encoding='utf-8') as json_data: # , errors='ignore'
         config = json.load(json_data, strict=False)
@@ -64,7 +72,7 @@ if __name__ == '__main__':
     else:
         run_type="all/"
 
-    # Set paths
+    # Setting paths
     # "test"/"all"
     final_data_path = sys_params['DATA_WRITE_FOLDER'] + '/' +  run_type + config['DATASET_TYPE'] + \
                       config["DATA"]["DATA_DIR"]
@@ -82,111 +90,138 @@ if __name__ == '__main__':
               '/' + config["DATA"]["DATA_DIR"] + '/' + model_name_save_dir
 
 
-    # parameters for DDC model (LSTM params)
-    h_batch_size = [32, 64, 128, 256]
-    h_hidden_dims = [8, 16, 32, 64, 128]
-    h_num_layers = [1, 2, 3]
-    h_lr = [0.1, 0.01, 0.001, 0.0001]
-    h_dropout = [0.0, 0.3, 0.5]
-    
-    list_hyperparam = [h_batch_size, h_hidden_dims, h_num_layers, h_lr, h_dropout]
+
+    # CNN/SimpleLSTM/AttLSTM
+    model_type=config["MODEL_NAME"]
+    HP_DICT_LIST_FILE = model_2_pkl_file_name[model_type]
+    list_hyperparam = model_2_hp_list_dict[model_type]
+
     cartesian_prod = list(itertools.product(*list_hyperparam))
-    random.shuffle(cartesian_prod)
+    #random.shuffle(cartesian_prod)
+
+    all_hp_dicts=[]
+    if os.path.exists(HP_DICT_LIST_FILE):
+        with open(HP_DICT_LIST_FILE, "rb") as fpkl:
+            all_hp_dicts=pickle.load(fpkl)        
+
+    # removing hparameter combinations for ones already done
+    hp_values=[tuple(d.values()) for d in all_hp_dicts]
+    cartesian_prod=[t for t in cartesian_prod if t not in hp_values]
 
     # For multi-processing on multiple GPUs
-    #devices=list(np.repeat([0,1,2,4,5,6,7,8,9], 2))  # 9 GPUS; each GPU can have 2 models # ???
-    devices = [d for d in range(torch.cuda.device_count())]
-    num_devices = len(devices)
+    num_devices = torch.cuda.device_count()
+    devices = list(range(num_devices))
     device_count = 0
     func_args = []
     
-    print(f"Number of cuda devices: {torch.cuda.device_count()}")
+    print(f"Number of cuda devices: {num_devices}")
+    print(f"List of devices: {devices}")
 
-    hyperparameter_df = pd.DataFrame(columns = ['Model Name','Batch Size','Hidden dim','No. Layers', 'LR', 'Dropout',
-                                                'Val Loss', 'Val Accuracy', 'Val F1', 'Val Prec', 'Val Recall',
-                                                'Train Loss', 'Train Accuracy', 'Train F1', 'Train Prec', 'Train Recall',
-                                                'Best Epoch'])
+    # Standard metrics + model specific hyperparameters
+    hyperparameter_df_columns=['Model Name'] + model_2_var_dict[model_type] + \
+        ['Val Loss', 'Val Accuracy', 'Val F1', 'Val Prec', 'Val Recall',
+        'Train Loss', 'Train Accuracy', 'Train F1', 'Train Prec', 'Train Recall',
+        'Best Epoch']
+    hyperparameter_df = pd.DataFrame(columns = hyperparameter_df_columns) 
     full_hyperparam_file_write_path = sys_params['HYPER_BASE_FOLDER'] + '/' + FILE_NAME
-    hyperparameter_df.to_csv(full_hyperparam_file_write_path, mode='a', header=True) # mode='a'
+    hyperparameter_df.to_csv(full_hyperparam_file_write_path, mode='a', header=True, index=False)
+
+    if TEST:
+        config['TRAINER']['epochs']=2
 
 
     for i in range(0,NO_MODELS):
         print('********************************')
-        print('Building Model {} ...'.format(i))
+        print(f'Building Model {i}...')
         print('********************************')
-        hyperparams = cartesian_prod[i]
-        batch_size = hyperparams[0]
-        hd = hyperparams[1]
-        nl = hyperparams[2]
-        learning_rate = hyperparams[3]
-        dropout = hyperparams[4]
 
-        #Create required config file
-        config['DATA']['BATCH_SIZE'] = batch_size
-        
-        
-        # hardcode test
-        #hd=16
-        #nl=3
-        
-        config['MODEL']['hidden_dim'] = hd
-        config['MODEL']['hidden_layers'] = nl
-        
-        config['OPTIMIZER']['lr'] = learning_rate
-        config['TRAINER']['dropout'] = dropout
+
+        hyperparams = cartesian_prod[i]
+
+        hp_names=model_2_var_dict[model_type]
+
+        assert(len(hyperparams)==len(hp_names))
+
+        # Slotting hyperparameters into proper config place and making a dict
+        hyperparam_dict={}
+        for h_ind, h_name in enumerate(hp_names):
+            hyperparam_dict[h_name]=hyperparams[h_ind]
+            if h_name=='lr':
+                config['OPTIMIZER']['lr']=hyperparams[h_ind]
+            elif h_name=='dropout':
+                config['TRAINER']['droupout']=hyperparams[h_ind]
+            elif h_name=='BATCH_SIZE':
+                config['DATA'][h_name]=hyperparams[h_ind]
+            else:
+                config['MODEL'][h_name]=hyperparams[h_ind]
+            
+
 
         config['TRAINER']['save_dir'] = save_dir_path
         config['TRAINER']['tb_path'] = tb_path
 
-        print(f"Hidden dim: {hd}, hidden layers: {nl}, dropout : {dropout}")
+        #print(hyperparam_dict)
         
         # For multi-processing
         if MULTIPROCESS:
 
             if device_count < num_devices:
                 device = 'cuda:' + str(devices[i % num_devices])
-                print('DEVICE:', device)
+                print('Device:', device)
                 device_tag="_device-"+str(device)
-                print(device_tag)
-                #randomtag = "_"+str(randint(1,9999))
-                training_object = Training(config, model_name_save_dir+device_tag,
-                    final_data_path, save_dir_path+device_tag, tb_path+device_tag, att_path+device_tag,
-                    device)
-                func_args.append(training_object)
+                
+                try:
+                    training_object = Training(config, model_name_save_dir+device_tag,
+                        final_data_path, save_dir_path+device_tag, tb_path+device_tag, att_path+device_tag,
+                        device) 
+                except RuntimeError: # in case of CNN mismatched kernel
+                    all_hp_dicts.append(hyperparam_dict)
+                    data_dict = {'Model Name': model_name_save_dir,
+                         **hyperparam_dict,
+                         'Val Loss': -1, 'Val Accuracy': -1,
+                         'Val F1': -1, 'Val Prec': -1, 'Val Recall': -1,
+                        'Train Loss': -1, 'Train Accuracy': -1,
+                         'Train F1': -1, 'Train Prec': -1, 'Train Recall': -1,
+                         'Best Epoch': -1}
+                    pd.DataFrame(data_dict, index=[0]).to_csv(full_hyperparam_file_write_path, mode='a', header=False, index=False)
+                    continue
+                func_args.append((training_object, hyperparam_dict))
                 device_count += 1
 
             if device_count == num_devices or i + 1 == NO_MODELS:
                 
-                context=get_context('spawn') # default is 'fork' and doesn't work with CUDA on NBI SLURM
+                context=get_context('spawn') # default is 'fork' and doesn't work with CUDA on EI/NBI SLURM
                 with Pool(num_devices, mp_context=context) as pool:
 
                     # Train model
                     print('Start Training Model: {}...'.format(model_name_save_dir))
-                    best_mets = pool.map(helper_func, func_args, chunksize=1)
-
-                best_metrics_list = list(best_mets)
+                    pool_result = pool.map(helper_func, func_args) # (metrics, hp_dict) per model
 
                 # Write hyper-parameters and results to csv file
-                print('Writing hyper-parameters and results file "{}"'.format(full_hyperparam_file_write_path))
-                for met in best_metrics_list:
-                    train_met = met['train'] # a mess
-                    val_met = met['val']
-
-                    data_dict = {'Model Name': model_name_save_dir, 'Batch Size': batch_size, 'Hidden dim': hd, 'No. Layers': nl,
-                             'LR': learning_rate, 'Dropout': dropout, 'Val Loss': val_met['loss'], 'Val Accuracy': val_met['acc'],
+                print(f'Writing hyper-parameters and results file "{full_hyperparam_file_write_path}"')
+                
+                for metrics, hp_dict in pool_result:
+                    train_met = metrics['train'] 
+                    val_met = metrics['val']
+                    
+                    data_dict = {'Model Name': model_name_save_dir,
+                                 **hp_dict, #'Batch Size': batch_size, 'Hidden dim': hd, 'No. Layers': nl, 'LR': learning_rate, 'Dropout': dropout,
+                             'Val Loss': val_met['loss'], 'Val Accuracy': val_met['acc'],
                              'Val F1': val_met['f1'], 'Val Prec': val_met['prec'], 'Val Recall': val_met['recall'],
                              'Train Loss': train_met['loss'], 'Train Accuracy': train_met['acc'],
                              'Train F1': train_met['f1'], 'Train Prec': train_met['prec'],
                              'Train Recall': train_met['recall'],
                              'Best Epoch': train_met['best_epoch']}
-                    pd.DataFrame(data_dict, index=[0]).to_csv(full_hyperparam_file_write_path, mode='a', header=False)
+                    pd.DataFrame(data_dict, index=[0]).to_csv(full_hyperparam_file_write_path, mode='a', header=False, index=False)
+                    
+                    all_hp_dicts.append(hp_dict)
 
+                # Pool over devices finished, resetting for next
                 func_args = []
                 device_count = 0
 
         else:
             # Single GPU-mode
-            # Train model
             print("Single GPU mode")
             print('Start Training Model: {}...'.format(model_name_save_dir))
             obj = Training(config, model_name_save_dir, final_data_path, save_dir_path, tb_path)
@@ -196,10 +231,16 @@ if __name__ == '__main__':
             print('Writing hyper-parameters and results file "{}"'.format(full_hyperparam_file_write_path))
             train_met = obj.best_metrics['train']
             val_met = obj.best_metrics['val']
-            data_dict = {'Model Name': model_name_save_dir, 'Batch Size': batch_size, 'Hidden dim': hd, 'No. Layers': nl,
-                         'LR':learning_rate, 'Dropout':dropout, 'Val Loss': val_met['loss'], 'Val Accuracy': val_met['acc'],
+            
+            data_dict = {'Model Name': model_name_save_dir,
+                         **hyperparam_dict,
+                         'Val Loss': val_met['loss'], 'Val Accuracy': val_met['acc'],
                          'Val F1': val_met['f1'], 'Val Prec': val_met['prec'], 'Val Recall': val_met['recall'],
                         'Train Loss': train_met['loss'], 'Train Accuracy': train_met['acc'],
                          'Train F1': train_met['f1'], 'Train Prec': train_met['prec'], 'Train Recall': train_met['recall'],
                          'Best Epoch': train_met['best_epoch']}
-            pd.DataFrame(data_dict, index=[0]).to_csv(full_hyperparam_file_write_path, mode='a', header=False)
+            pd.DataFrame(data_dict, index=[0]).to_csv(full_hyperparam_file_write_path, mode='a', header=False, index=False)
+
+    # saving all hyperparameter dictionaries for future checks
+    with open(HP_DICT_LIST_FILE, "wb") as fpkl:
+        pickle.dump(all_hp_dicts, fpkl)

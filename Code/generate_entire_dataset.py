@@ -25,8 +25,8 @@ chrm = 'all'
 WRITE_DATA_TO_FILE = True
 
 DATA_LOG = True
-SANITY_CHECK = True # For Wilfred
-META_DATA = False  # For Upamanyu
+SANITY_CHECK = True
+META_DATA = False
 
 with open('system_specific_params.yaml', 'r') as params_file:
     sys_params = yaml.load(params_file)
@@ -46,7 +46,6 @@ for i in range(1,23):  # full chromosome range = [1,23]
     all_genes_in_chrm = list(map(lambda x: chromosome_dataset['main'][x]['gene_id'].strip('"'),
                              list(range(0, len(chromosome_dataset['main'])))))
 
-    # Do not consider the chromosomes that Wilfried wants ignored
     if len(set(all_genes_in_chrm).intersection(set(genes_ignore))) != 0:
         print('Skipping gene:', set(all_genes_in_chrm).intersection(set(genes_ignore)))
         continue

@@ -8,6 +8,7 @@ import torch.optim as optim
 import os
 import sys
 
+sys.path.append('../../')
 from models import *
 
 # assuming a command line argument passed
@@ -21,13 +22,10 @@ except IndexError:
     print("Missing argument!")
     sys.exit(1)
 
-# arg1="encoded_10khead_1step.txt"
-# arg2="rez/outputchr12.pt"
-# arg3="best_cpoint_butC12.pth"
 
-#y_label_path="C:/Users/uzunv/Desktop/asmitaSeptember/Model14_AttLSTM[4,16,2,2]_BS4_LR0.001_27-08_2021_11_40/y_label_val"
-chr_encoded_seq=arg1 #"raw/by100k_step25_chr"+arg2+"/encoded_till"+arg1+"00k_by100k_s25"
-output_path= arg2#"results/output_chr"+arg2+"_till"+arg1+"00k_by100k_25s.pt"
+
+chr_encoded_seq=arg1 
+output_path= arg2
 checkpoint_path=arg3
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -37,9 +35,6 @@ print("Torch using",device)
 # a dict, eopch, state_dict, optimizer, config
 mcheck=torch.load(checkpoint_path, map_location=device)
 #print(mcheck)
-
-mcheck['config']['MODEL_NAME'] # AttLSTM
-mcheck['config']["OPTIMIZER"]  # Adam
 
 config=mcheck['config']
 

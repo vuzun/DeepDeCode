@@ -1,7 +1,5 @@
 import torch
-import numpy as np
 from sklearn import metrics
-
 
 def metrics_regression(raw, y_true):
     '''
@@ -33,13 +31,12 @@ def accuracy_from_raw(raw, y_true):
     acc =  metrics.accuracy_score(pred_from_raw(raw), y_true.numpy())
     return acc
 
-
-#todo: get confusion martix
 def update_key(raw, y_true, key):
     if key == 'conf_mat':
         pred = pred_from_raw(raw)
         conf_mat = metrics.confusion_matrix(y_true, pred, labels=[0, 1, 2])
     return conf_mat
+
 
 class Metrics():
     '''
@@ -65,8 +62,3 @@ class Metrics():
             acc = accuracy_from_raw(raw, y_true)
             self.metrics = {'prec': prec, 'recall': recall, 'f1': f1, 'acc': acc}
             return self.metrics, pred
-
-
-
-
-

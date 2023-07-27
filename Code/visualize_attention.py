@@ -6,8 +6,6 @@ import seaborn
 import matplotlib.pyplot as plt
 import argparse
 
-#/Users/asmitapoddar/Documents/Oxford/Thesis/Genomics Project/Code/attention/lengths/Len60_balanced_AttLSTM[4,128,2,2]_BS32_Adam_29-07_15:59
-model_name_save_dir = 'Len40_balanced_AttLSTM[4,64,2,2]_BS32_Adam_02-08_11:31'
 with open('system_specific_params.yaml', 'r') as params_file:
     sys_params = yaml.load(params_file)
 

@@ -15,8 +15,6 @@ WRITE_TO_FILE = False
 # fix random seeds for reproducibility --
 random.seed(123)
 
-#todo: create class with attributes and funcs, so that do not need to pass the attributes to individual funcs
-
 def convert_list_to_interval(data, type='closed'):
     '''
     Convert a list of lists to a list of intervals

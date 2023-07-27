@@ -1,7 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.autograd import Variable
 import numpy as np
 
 class BaseModel(nn.Module):
@@ -19,20 +17,22 @@ class BaseModel(nn.Module):
 
 class SimpleLinear(BaseModel):
 
-    def __init__(self, input_dims, out):
+    def __init__(self, input_dims, hidden_dims, output_dim):
         super(SimpleLinear, self).__init__()
-        self.input_dims=input_dims
-        self.linear=nn.Linear(input_dims, out)
-        self.relu=nn.ReLU()
-        
-    
+        self.input_dims=input_dims   
+        self.linlayers=nn.Sequential(
+            nn.Linear(input_dims, hidden_dims),
+            nn.ReLU(),
+            nn.linear(hidden_dims, output_dim),
+            nn.Softmax()
+        )
+
     def forward(self, x):
         x=x.reshape(-1,self.input_dims)
-        x=self.linear(x)
-        x=self.relu(x)
+        x=self.linlayers(x)
         return x
 
-''' ***** Simple LSTM ***** '''
+
 class SimpleLSTM(BaseModel):
 
     def __init__(self, input_dims, hidden_units, hidden_layers, out, batch_size,
@@ -65,61 +65,73 @@ class SimpleLSTM(BaseModel):
 
     def forward(self, input):
         hidden = self.init_hidden(input.shape[0])  # tuple containing hidden state and cell state; `hidden` = (h_t, c_t)
-                                                    # pass batch_size as a parameter incase of incomplete batch
         lstm_out, (h_n, c_n) = self.lstm(input, hidden)
-        #concat_state = torch.cat((lstm_out[:, -1, :self.hidden_units], lstm_out[:, 0, self.hidden_units:]), 1)
-        # same as `output = output[:, -1, :]`?
-        hidden_reshape = h_n.reshape(-1, self.hidden_units * self.num_directions * self.hidden_layers) # hidden_layers?, doesn't this break with N>1?
-
-        # why take all hidden states?
-
+        hidden_reshape = h_n.reshape(-1, self.hidden_units * self.num_directions * self.hidden_layers)
         raw_out = self.output_layer(hidden_reshape)
-        #raw_out = self.output_layer(h_n[-1])
 
         return raw_out
 
-''' ***** CNN ***** '''
+
+
 class CNN(BaseModel):
-    def __init__(self, no_classes, device):
+    def __init__(self, no_classes, device, batch_size=1,
+            conv_layer_num=2, filter_num=32, kernel_size=5, conv_layer_stride=1,
+            max_pool_kernel_size=2, max_pool_stride=2,
+            fc_layer_num=None, fc_neuron_num=1000,
+            dropout=0.0):
         super(CNN, self).__init__()
         self.no_classes = no_classes
         self.device = device
+        self.batch_size = batch_size
+        
+        self.conv_layer_num=conv_layer_num
+        self.filter_num=filter_num
+        self.kernel_size=kernel_size
+        self.conv_layer_stride=conv_layer_stride
 
+        self.max_pool_kernel_size=max_pool_kernel_size
+        self.max_pool_stride=max_pool_stride
+        
+        self.fc_layer_num=fc_layer_num
+        self.fc_neuron_num=fc_neuron_num
+        self.dropout=dropout
+
+  
         self.cnn_layers = nn.Sequential(
-            # Defining a 2D convolution layer
-            nn.Conv2d(1, 32, kernel_size=(5,15), stride=1, padding=2),
+        
+            nn.Conv2d(1, self.filter_num, self.kernel_size, self.conv_layer_stride, padding=2),
             #nn.BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            # Defining another 2D convolution layer
-            nn.Conv2d(32, 64, kernel_size=(5,15), stride=1, padding=2),
+            nn.MaxPool2d(self.max_pool_kernel_size, self.max_pool_stride),  #! max_pooling_kernel_size, stride
+            nn.Conv2d(self.filter_num, 64, self.kernel_size, self.conv_layer_stride, padding=2),
             #nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            # Dropout
-            #nn.Dropout()
+            nn.MaxPool2d(self.max_pool_kernel_size, self.max_pool_stride),
+            nn.Dropout(self.dropout)
         )
-        # Defining fully-connected layer
-        #self.linear_layers = nn.Sequential(nn.Linear(self.cnn_layers.shape[1], self.no_classes))
-
-    def linear_layer(self, outputlength):
-        linear_layer = nn.Sequential(nn.Linear(outputlength, 1000).to(self.device))
-        return linear_layer
+        
+        
+        cnn_layers_output=self.cnn_layers(torch.rand(1,1,4,100)) # 4 - encoding, 100 - subsequence length
+        cnn_layers_outputlength=cnn_layers_output.view(1,-1).size(1) # view to collapse dimensions after samples/N
+        
+        self.linear_layers = nn.Sequential(
+            nn.Linear(cnn_layers_outputlength, self.fc_neuron_num).to(self.device),
+            nn.Linear(self.fc_neuron_num, self.no_classes).to(self.device)
+        )
 
     def forward(self, x):
         x = x.reshape(x.size(0),x.size(2),x.size(1))
         x = x.unsqueeze(1)
+        
         x = self.cnn_layers(x)
         x = x.view(x.size(0), -1)
 
-        outputlength = x.size()[1]
-        linear_layers = self.linear_layer(outputlength)
-        output = linear_layers(x)
-        output1 = nn.Linear(1000, self.no_classes).to(self.device)(output)
-        return output1
+        output = self.linear_layers(x)
+        
+        return output
 
 
-''' ***** Attention Model ***** '''
+# Attention and combination classes
 
 def batch_product(iput, cvec):
     result = None
@@ -133,10 +145,10 @@ def batch_product(iput, cvec):
     return result.squeeze(2)
 
 
-class rec_attention(nn.Module):
-    # attention with bin context vector
+class attention_layer(nn.Module):
+    # attention layer
     def __init__(self, args):
-        super(rec_attention, self).__init__()
+        super(attention_layer, self).__init__()
         self.num_directions = 2 if args['bidirectional'] else 1
         self.bin_rep_size = args['hidden_size'] * self.num_directions
 
@@ -155,7 +167,7 @@ class rec_attention(nn.Module):
 
 
 class recurrent_encoder(nn.Module):
-    # modular LSTM encoder
+    # LSTM + attention layer
     def __init__(self, seq_length, input_bin_size, args):
         super(recurrent_encoder, self).__init__()
         self.hidden_size = args['hidden_size']
@@ -168,19 +180,19 @@ class recurrent_encoder(nn.Module):
         
         self.lstm = nn.LSTM(self.input_dims, self.hidden_size, num_layers=self.num_layers, dropout=args['dropout'],
                            bidirectional=args['bidirectional'], batch_first=True)
-        self.rec_attention = rec_attention(args)
+        self.attention_layer = attention_layer(args)
 
     def total_h_size(self):
         return self.total_hidden_size
 
     def forward(self, seq, hidden=None):
-        torch.manual_seed(0) # ?
+        torch.manual_seed(0)
 
         lstm_out, (h_n, c_n) = self.lstm(seq, hidden)
         h_n = h_n.reshape(-1, self.hidden_size * self.num_directions * self.num_layers)
 
         bin_output_for_att = lstm_out.permute(1, 0, 2) # N, L, DHout > L, N, DHout
-        nt_rep, bin_alpha = self.rec_attention(bin_output_for_att)
+        nt_rep, bin_alpha = self.attention_layer(bin_output_for_att)
         #print(f"lstm_out: {lstm_out.shape}")
         #print(f"nt_rep size: {nt_rep.shape}, bin_alpha size: {bin_alpha.shape}, h_c : {h_n.shape}")
         return nt_rep, h_n, bin_alpha
@@ -195,14 +207,12 @@ class att_DNA(BaseModel):
         self.linear = nn.Linear(self.outputsize * (1+args['num_layers']), out) # 3 assumes 2 hidden layers and 1 for repres
 
     def forward(self, iput):
-
-        #[batch_size, _, _] = iput.size() does nothing?
-        att_rep, hidden_reshape, bin_a = self.encoder(iput) # hidden_reshape will change based on stacked num???
+        att_rep, hidden_reshape, bin_a = self.encoder(iput)
         #print(f"In att_DNA, rep before squeeze: {att_rep.shape}")
         att_rep = att_rep.squeeze(1)
         #print(f"In att_DNA, lvl1rep: {att_rep.shape}, hidden_reshape: {hidden_reshape.shape}")
         concat = torch.cat((hidden_reshape, att_rep), dim=1)
-        bin_pred = self.linear(concat) # 3 layers error, 2 no
+        bin_pred = self.linear(concat) 
         sigmoid_pred = torch.sigmoid(bin_pred)
         return sigmoid_pred, bin_a
 
